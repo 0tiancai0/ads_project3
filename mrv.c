@@ -5,6 +5,28 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+/* CPU time, excluding input/output; stderr preserves the answer format. */
+static clock_t timer_begin, timer_search_begin;
+static void report_timing(const char *solver, int searched)
+{
+    clock_t end = clock();
+    clock_t split = searched ? timer_search_begin : end;
+    if (timer_begin == (clock_t)-1 || end == (clock_t)-1 ||
+        (searched && split == (clock_t)-1)) {
+        fprintf(stderr, "[timing] solver=%s CPU timer unavailable\n", solver);
+        return;
+    }
+    fprintf(stderr,
+            "[timing] solver=%s preprocess_ms=%.6f search_ms=%.6f total_ms=%.6f search_started=%d\n",
+            solver,
+            1000.0 * (double)(split - timer_begin) / CLOCKS_PER_SEC,
+            searched ? 1000.0 * (double)(end - split) / CLOCKS_PER_SEC : 0.0,
+            1000.0 * (double)(end - timer_begin) / CLOCKS_PER_SEC,
+            searched);
+}
+
 
 #define MAXD 52
 #define MAXV 2600
@@ -196,6 +218,7 @@ int main(void)
             sum += g[r][c];
         }
 
+    timer_begin = clock();
     memset(neighbor, -1, sizeof(neighbor));
     for (r = 0; r < n; ++r)
         for (c = 0; c < m; ++c) {
@@ -248,7 +271,14 @@ int main(void)
      *                      ⚠️ 差异区域 4 结束 ⚠️
      * ===================================================================== */
 
-    if ((sum & 1) || !dfs(0)) {
+    int solved = 0;
+    int searched = !(sum & 1);
+    if (searched) {
+        timer_search_begin = clock();
+        solved = dfs(0);
+    }
+    report_timing("mode2_mrv", searched);
+    if (!solved) {
         printf("No Solution\n");
     } else {
         for (i = 0; i < cnt; ++i)
