@@ -209,7 +209,8 @@ static int dfs(int i)
             col = vc[i];
             oldTop = vTop[col]; oldBot = vBot[col];   /* 先存旧值 */
             vTop[col] = vr[i];  vBot[col] = vr[jd];   /* 再覆盖   */
-        }
+        } /*往右连：扣除双方度数，记录双方的边（双向记账）。
+        往下连：扣除双方度数，记录边，并更新扫描线。把 i 和 jd 所在的这一列，竖线的起点和终点记录下来（这样后面处理横线时就能查到了）。*/
 
         /* ---------- 递归到下一个点 ---------- */
         if (dfs(i + 1)) return 1;
