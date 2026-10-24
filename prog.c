@@ -36,7 +36,7 @@
  *  【剪枝】见 accept()
  *  【交叉】见 crosses 所在的代码段
  *
- *  复杂度：搜索上界 O(m * 2^V)，V 最多 2500；详细推导见 docs/算法复杂度与计时说明.md。
+ *  复杂度：搜索上界 O(m * 2^V)，V 最多 2500。
  *  编译：  gcc -O2 -std=c99 -o prog prog.c
  *  加 -DSTAT 可以在 stderr 看到搜索节点数（写测试报告时有用）。
  * ===================================================================== */
@@ -45,26 +45,47 @@
 #include <string.h>
 #include <time.h>
 
+/* =====================================================================
+ * 修改区域：高精度计时模块
+ * 说明：将原有的 clock() 替换为跨平台的高精度计时（Windows / Linux）。
+ *       其他所有逻辑保持不变。
+ （如果是windows,启用QueryPerformanceFrequency（）；如果是mac/Linux,启用clock_gettime（）。
+ 比原来的clock()精度更高，因为我们的程序原本的运行时间就很短，所以对精度要求也更高。）
+ * ===================================================================== */
+#ifdef _WIN32
+#include <windows.h>
+static double get_time() {
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)freq.QuadPart;
+}
+#else
+static double get_time() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+#endif
+
 /* CPU time, excluding input/output; stderr preserves the answer format. */
-static clock_t timer_begin, timer_search_begin;
+static double timer_begin, timer_search_begin;
 static void report_timing(const char *solver, int searched)
 {
-    clock_t end = clock();
-    clock_t split = searched ? timer_search_begin : end;
-    if (timer_begin == (clock_t)-1 || end == (clock_t)-1 ||
-        (searched && split == (clock_t)-1)) {
-        fprintf(stderr, "[timing] solver=%s CPU timer unavailable\n", solver);
-        return;
-    }
+    double end = get_time();
+    double split = searched ? timer_search_begin : end;
+    
     fprintf(stderr,
             "[timing] solver=%s preprocess_ms=%.6f search_ms=%.6f total_ms=%.6f search_started=%d\n",
             solver,
-            1000.0 * (double)(split - timer_begin) / CLOCKS_PER_SEC,
-            searched ? 1000.0 * (double)(end - split) / CLOCKS_PER_SEC : 0.0,
-            1000.0 * (double)(end - timer_begin) / CLOCKS_PER_SEC,
+            (split - timer_begin) * 1000.0,
+            searched ? (end - split) * 1000.0 : 0.0,
+            (end - timer_begin) * 1000.0,
             searched);
 }
-
+/* =====================================================================
+ * 修改区域结束
+ * ===================================================================== */
 
 #define MAXD 52          /* 网格最大 50×50，留点余量 */
 #define MAXV 2600        /* 最多 2500 个连接件 */
@@ -118,9 +139,6 @@ static long long nodes, fails;   /* 调试用：搜索了多少个 / 剪掉了�
  *    - 往下：j 的上邻就是 i 自己，这条边已经在 need 里算过；
  *    - 往右：j 的上邻在更早的行，编号一定 < i，早就定死了。
  *  所以“上边”永远不会是“还没轮到”的状态，不需要 prevD。
- *
- *  坑：一开始漏了 “+ (prevR[j] > i)”，样例 1 的 (5,6) 就会被误剪，
- *      整题输出 No Solution。详见文档第 5.3 节。
  * ===================================================================== */
 static int accept(int i, int j)
 {
@@ -137,9 +155,6 @@ static int accept(int i, int j)
 
 /* =====================================================================
  *  dfs(i)：处理第 i 个连接件；成功返回 1，失败返回 0
- * ---------------------------------------------------------------------
- *  进入时保证：编号 0..i-1 的点都已处理完，deg[] 与 vTop/vBot 都和
- *  “已选边”一致。i 只需要决定 down / right 两条边。
  * ===================================================================== */
 static int dfs(int i)
 {
@@ -177,11 +192,7 @@ static int dfs(int i)
         if (d && !accept(i, jd)) continue;
         if (r && !accept(i, jr)) continue;
 
-        /* ---- 交叉检查：只查水平段 ----
-         * 行优先保证：能穿过第 r 行的竖直段全都已经放好了；
-         * 以后放的竖直段上端在 r 行或更下面，碰不到水平段的内部。
-         * 判据 vTop[x] < r && vBot[x] > r 必须严格：相等表示竖直段
-         * 正好在 r 行结束，那是端点、是连接件，合法。                */
+        /* ---- 交叉检查：只查水平段 ---- */
         if (r) {
             int x, ok = 1, row = vr[i];
             for (x = vc[i] + 1; x < vc[jr]; ++x)
@@ -233,7 +244,7 @@ int main(void)
             sum += g[r][c];                  /* 总度数（后面判奇偶用） */
         }
 
-    timer_begin = clock();
+    timer_begin = get_time(); /* 修改：调用高精度计时器 */
 
     /* ---------- 1. 行优先编号 ---------- */
     cnt = 0;
@@ -251,9 +262,7 @@ int main(void)
             }
         }
 
-    /* ---------- 2. 建候选边 ----------
-     * 每一行从左往右扫一遍：相邻的两个连接件之间就是一条候选边。
-     * 一次扫描同时得到 nxtR（右边是谁）和 prevR（左边是谁）。       */
+    /* ---------- 2. 建候选边 ---------- */
     for (r = 0; r < n; ++r) {
         last = -1;
         for (c = 0; c < m; ++c) {
@@ -266,8 +275,6 @@ int main(void)
         }
     }
 
-    /* 每一列从上往下扫一遍，得到 nxtD（下面是谁）。
-     * 往上那条不用存，见 accept() 的注释。                          */
     for (c = 0; c < m; ++c) {
         last = -1;
         for (r = 0; r < n; ++r) {
@@ -302,7 +309,7 @@ int main(void)
     memset(vTop, -1, sizeof(vTop));
     memset(vBot, -1, sizeof(vBot));
 
-    timer_search_begin = clock();
+    timer_search_begin = get_time(); /* 修改：调用高精度计时器 */
     if (!dfs(0)) {
         report_timing("prog", 1);
         printf("No Solution\n");
@@ -311,9 +318,7 @@ int main(void)
 
     report_timing("prog", 1);
 
-    /* ---------- 5. 输出 ----------
-     * 编号按行优先生成，直接 0..cnt-1 输出即为题目要求的顺序。
-     * 行列号从 0 起，输出时 +1。                                    */
+    /* ---------- 5. 输出 ---------- */
     for (i = 0; i < cnt; ++i)
         printf("%d %d %d %d %d %d\n",
                vr[i] + 1, vc[i] + 1, eU[i], eD[i], eL[i], eR[i]);
