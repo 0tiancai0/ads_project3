@@ -36,13 +36,35 @@
  *  【剪枝】见 accept()
  *  【交叉】见 crosses 所在的代码段
  *
- *  复杂度：最坏 O(2^V)，V 最多 2500；实测 50×50 的数据在 1 秒内。
+ *  复杂度：搜索上界 O(m * 2^V)，V 最多 2500；详细推导见 docs/算法复杂度与计时说明.md。
  *  编译：  gcc -O2 -std=c99 -o prog prog.c
  *  加 -DSTAT 可以在 stderr 看到搜索节点数（写测试报告时有用）。
  * ===================================================================== */
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+/* CPU time, excluding input/output; stderr preserves the answer format. */
+static clock_t timer_begin, timer_search_begin;
+static void report_timing(const char *solver, int searched)
+{
+    clock_t end = clock();
+    clock_t split = searched ? timer_search_begin : end;
+    if (timer_begin == (clock_t)-1 || end == (clock_t)-1 ||
+        (searched && split == (clock_t)-1)) {
+        fprintf(stderr, "[timing] solver=%s CPU timer unavailable\n", solver);
+        return;
+    }
+    fprintf(stderr,
+            "[timing] solver=%s preprocess_ms=%.6f search_ms=%.6f total_ms=%.6f search_started=%d\n",
+            solver,
+            1000.0 * (double)(split - timer_begin) / CLOCKS_PER_SEC,
+            searched ? 1000.0 * (double)(end - split) / CLOCKS_PER_SEC : 0.0,
+            1000.0 * (double)(end - timer_begin) / CLOCKS_PER_SEC,
+            searched);
+}
+
 
 #define MAXD 52          /* 网格最大 50×50，留点余量 */
 #define MAXV 2600        /* 最多 2500 个连接件 */
@@ -211,6 +233,8 @@ int main(void)
             sum += g[r][c];                  /* 总度数（后面判奇偶用） */
         }
 
+    timer_begin = clock();
+
     /* ---------- 1. 行优先编号 ---------- */
     cnt = 0;
     for (r = 0; r < n; ++r)
@@ -263,11 +287,13 @@ int main(void)
 
         /* 度数不能超过“看得见”的方向数 */
         if (vk[i] > hasL + hasU + (nxtR[i] >= 0) + (nxtD[i] >= 0)) {
+            report_timing("prog", 0);
             printf("No Solution\n");
             return 0;
         }
     }
     if (sum & 1) {                            /* 握手定理：总度数必须是偶数 */
+        report_timing("prog", 0);
         printf("No Solution\n");
         return 0;
     }
@@ -276,10 +302,14 @@ int main(void)
     memset(vTop, -1, sizeof(vTop));
     memset(vBot, -1, sizeof(vBot));
 
+    timer_search_begin = clock();
     if (!dfs(0)) {
+        report_timing("prog", 1);
         printf("No Solution\n");
         return 0;
     }
+
+    report_timing("prog", 1);
 
     /* ---------- 5. 输出 ----------
      * 编号按行优先生成，直接 0..cnt-1 输出即为题目要求的顺序。
